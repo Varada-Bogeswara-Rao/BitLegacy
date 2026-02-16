@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "slither-mcp": {
+      "command": "python",
+      "args": ["-m", "slither_mcp"],
+      "env": {}
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "d:/BitLegacy"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-playwright"
+      ]
+    }
+  }
+}

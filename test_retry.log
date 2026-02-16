@@ -1,0 +1,17 @@
+An unexpected error occurred:
+
+TypeError: Cannot destructure property 'hardhatNetwork' of 'userConfig' as it is undefined.
+    at Object.getChain (/home/bunny/BitLegacy/node_modules/@midl/hardhat-deploy/dist/actions/getChain.cjs:7:10)
+    at Object.createMidlHardhatEnvironment (/home/bunny/BitLegacy/node_modules/@midl/hardhat-deploy/dist/createMidlHardhatEnvironment.cjs:23:33)
+    at /home/bunny/BitLegacy/node_modules/@midl/hardhat-deploy/dist/index.cjs:9:50
+    at /home/bunny/BitLegacy/node_modules/hardhat/src/internal/core/runtime-environment.ts:116:48
+    at Array.forEach (<anonymous>)
+    at new Environment (/home/bunny/BitLegacy/node_modules/hardhat/src/internal/core/runtime-environment.ts:116:26)
+    at main (/home/bunny/BitLegacy/node_modules/hardhat/src/internal/cli/cli.ts:234:17)
+    at Object.<anonymous> (/home/bunny/BitLegacy/node_modules/hardhat/src/internal/cli/cli.ts:483:1)
+    at Module._compile (node:internal/modules/cjs/loader:1760:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+(node:17768) Warning: Accessing non-existent property 'edictRune' of module exports inside circular dependency
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17768) Warning: Accessing non-existent property 'extractEVMSignature' of module exports inside circular dependency
+(node:17768) Warning: Accessing non-existent property 'verifyBIP322Signature' of module exports inside circular dependency
