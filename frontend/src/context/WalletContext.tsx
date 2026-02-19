@@ -77,7 +77,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
         // Small delay to let Xverse extension inject
         const timer = setTimeout(tryReconnect, 500)
-        return () => clearTimeout(timer)
+
+        // Listen for account changes
+        const handleAccountsChanged = () => {
+            // Re-run connection logic to update accounts
+            tryReconnect()
+        }
+
+        const xverseProvider = typeof window !== 'undefined' && (
+            (window as any).BitcoinProvider ||
+            (window as any).btc_providers?.find((p: any) => p.name?.includes('Xverse'))
+        )
+
+        if (xverseProvider) {
+            // Try standard event (EIP-1193 style if supported) or specific Xverse events
+            // Xverse often emits 'accountsChanged' on the provider object
+            xverseProvider.on?.('accountsChanged', handleAccountsChanged)
+        }
+
+        return () => {
+            clearTimeout(timer)
+            if (xverseProvider) {
+                xverseProvider.removeListener?.('accountsChanged', handleAccountsChanged)
+            }
+        }
     }, [])
 
     return (

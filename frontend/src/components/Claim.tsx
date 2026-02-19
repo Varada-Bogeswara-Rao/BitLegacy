@@ -1,29 +1,20 @@
+
 import { useState } from 'react'
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useBalance } from 'wagmi'
 import { useWallet } from '../context/WalletContext'
 import { addTxIntention } from '@midl/executor'
-import { midlConfig } from '../config'
-import { hexToString, encodeFunctionData } from 'viem'
+import { midlConfig, publicClient } from '../config'
+import { encodeFunctionData, formatEther } from 'viem'
 import { executeMidlTransaction } from '../utils/midlTransaction'
 import BitcoinAutonomousWillArtifact from '../abis/BitcoinAutonomousWill.json'
 
-const CONTRACT_ADDRESS = BitcoinAutonomousWillArtifact.address as `0x${string}`
+const CONTRACT_ADDRESS = BitcoinAutonomousWillArtifact.address as `0x${string} `
 const ABI = BitcoinAutonomousWillArtifact.abi
 
-type VaultStruct = {
-    createdAt: bigint
-    lastCheckIn: bigint
-    checkInInterval: bigint
-    messageHash: string
-    encryptedMessage: string
-    isActive: boolean
-    isClaimed: boolean
-    claimInitiated: boolean
-    messageRevealed: boolean
-}
+
 
 export default function Claim() {
-    const { address: wagmiAddress, isConnected: isWagmiConnected } = useAccount()
+    const { isConnected: isWagmiConnected } = useAccount()
     const [ownerAddress, setOwnerAddress] = useState('')
     const [isSearching, setIsSearching] = useState(false)
 
@@ -43,7 +34,7 @@ export default function Claim() {
         address: CONTRACT_ADDRESS,
         abi: ABI,
         functionName: 'getStatus',
-        args: [ownerAddress as `0x${string}`],
+        args: [ownerAddress as `0x${string} `],
         query: {
             enabled: isSearching && !!ownerAddress,
         }
@@ -53,17 +44,17 @@ export default function Claim() {
         address: CONTRACT_ADDRESS,
         abi: ABI,
         functionName: 'getHeirs',
-        args: [ownerAddress as `0x${string}`],
+        args: [ownerAddress as `0x${string} `],
         query: {
             enabled: isSearching && !!ownerAddress,
         }
     })
 
-    const { data: vaultData, refetch: refetchVault } = useReadContract({
+    const { refetch: refetchVault } = useReadContract({
         address: CONTRACT_ADDRESS,
         abi: ABI,
         functionName: 'vaults',
-        args: [ownerAddress as `0x${string}`],
+        args: [ownerAddress as `0x${string} `],
         query: {
             enabled: isSearching && !!ownerAddress,
         }
@@ -79,8 +70,16 @@ export default function Claim() {
         }
     })
 
+    const { data: balanceData } = useBalance({
+        address: evmAddress as `0x${string} `,
+        query: {
+            enabled: !!evmAddress,
+            refetchInterval: 5000,
+        }
+    })
+
     const { data: hash, writeContract, error: writeError, isPending: isWritePending } = useWriteContract()
-    const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
+    const { isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
 
     if (isConfirmed) {
         refetchVault()
@@ -102,15 +101,54 @@ export default function Claim() {
         try {
             const data = encodeFunctionData({ abi: ABI, functionName, args })
             const intention = await addTxIntention(midlConfig, {
-                evmTransaction: { to: CONTRACT_ADDRESS, data, from: evmAddress },
+                evmTransaction: { to: CONTRACT_ADDRESS, data, from: evmAddress, value: 0n },
             }, paymentAccount.address)
 
-            await executeMidlTransaction([intention], paymentAccount, setTxStatus)
-            setTxStatus(null)
+            // Cast to any to bypass strict type mismatch between @midl/executor and local utility
+            const hashes = await executeMidlTransaction([intention as any], paymentAccount, setTxStatus)
+
+            // Wait for EVM transaction confirmation
+            if (hashes.length > 0) {
+                setTxStatus('Waiting for confirmation...')
+                const receipt = await publicClient.waitForTransactionReceipt({
+                    hash: hashes[0] as `0x${string} `
+                })
+
+                if (receipt.status === 'reverted') {
+                    throw new Error('Transaction reverted on-chain. Please check your inputs.')
+                }
+            }
+
             setTxSuccess(true)
-            refetchVault()
-            refetchStatus()
+            setTxStatus('Syncing with blockchain...')
+
+            // Poll for state update
+            let attempts = 0
+            const pollForUpdate = async () => {
+                attempts++
+                const { data } = await refetchVault()
+                const v = data as any
+
+                // If we claimed, wait for claimed flag.
+                let done = false
+                if (functionName === 'claimInheritance') {
+                    if (v?.isClaimed) done = true
+                } else {
+                    // Withdraw or others don't strictly need this polling block for UI toggles, but good for balance
+                    done = true
+                }
+
+                if (!done && attempts < 20) { // Try for ~40 seconds
+                    setTimeout(pollForUpdate, 2000)
+                } else {
+                    setTxStatus(null)
+                    refetchStatus()
+                }
+            }
+            pollForUpdate()
+
         } catch (err: any) {
+            console.error(err)
             const msg = err?.message || `${functionName} failed`
             if (msg.includes('No selected UTXOs') || msg.includes('UTXO')) {
                 setTxError('Your Bitcoin wallet has no available UTXOs. You need some BTC in your wallet to pay the Midl transaction fee. Please fund your address and try again.')
@@ -123,12 +161,12 @@ export default function Claim() {
 
     const handleClaim = () => {
         if (isXverseConnected) {
-            sendViaXverse('claimInheritance', [ownerAddress as `0x${string}`, connectedBtcAddress])
+            sendViaXverse('claimInheritance', [ownerAddress as `0x${string} `, connectedBtcAddress])
         } else {
             writeContract({
                 address: CONTRACT_ADDRESS, abi: ABI,
                 functionName: 'claimInheritance',
-                args: [ownerAddress as `0x${string}`, connectedBtcAddress],
+                args: [ownerAddress as `0x${string} `, connectedBtcAddress],
             })
         }
     }
@@ -139,19 +177,6 @@ export default function Claim() {
         }
     }
 
-    const handleReveal = () => {
-        if (isXverseConnected) {
-            sendViaXverse('revealMessage', [ownerAddress as `0x${string}`, connectedBtcAddress])
-        } else {
-            writeContract({
-                address: CONTRACT_ADDRESS, abi: ABI,
-                functionName: 'revealMessage',
-                args: [ownerAddress as `0x${string}`, connectedBtcAddress],
-            })
-        }
-    }
-
-    const vault = vaultData as any as VaultStruct
     const status = statusData as any
     const pendingAmount = pendingData as bigint | undefined
     const isPending = isWritePending || txStatus !== null
@@ -222,9 +247,6 @@ export default function Claim() {
     }
 
     const canClaim = status.expired && status.active && isHeir
-    const isMessageRevealed = vault?.messageRevealed
-    const messageBytes = vault?.encryptedMessage
-    const revealedMessage = (isMessageRevealed && messageBytes) ? hexToString(messageBytes as `0x${string}`) : ''
 
     return (
         <div className="bg-gray-800 p-8 rounded-xl shadow-xl border border-gray-700">
@@ -234,9 +256,24 @@ export default function Claim() {
             </div>
 
             {connectedBtcAddress && (
-                <div className="mb-4 bg-gray-900/60 p-3 rounded-lg border border-gray-700">
+                <div className="mb-6 bg-gray-900/60 p-3 rounded-lg border border-gray-700">
                     <span className="text-xs text-gray-500">Your Bitcoin Address</span>
-                    <p className="text-sm text-amber-400 font-mono break-all">{connectedBtcAddress}</p>
+                    <p className="text-sm text-amber-400 font-mono break-all mb-2">{connectedBtcAddress}</p>
+
+                    {evmAddress && (
+                        <>
+                            <div className="border-t border-gray-700 my-2 pt-2">
+                                <span className="text-xs text-gray-500">Your Midl EVM Address (for receiving funds)</span>
+                                <p className="text-xs text-gray-400 font-mono break-all">{evmAddress}</p>
+                            </div>
+                            <div>
+                                <span className="text-xs text-gray-500">Current Balance</span>
+                                <p className="text-sm text-white font-bold">
+                                    {balanceData ? parseFloat(formatEther(balanceData.value)).toFixed(4) : '0.000'} BTC
+                                </p>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -244,7 +281,7 @@ export default function Claim() {
                 <div className="bg-gray-900 p-4 rounded-lg">
                     <p className="text-gray-400 text-sm">Vault Status</p>
                     <div className="flex items-center gap-2 mt-1">
-                        <span className={`h-3 w-3 rounded-full ${status.active && !isClaimed ? 'bg-green-500' : isClaimed ? 'bg-blue-500' : 'bg-red-500'}`}></span>
+                        <span className={`h - 3 w - 3 rounded - full ${status.active && !isClaimed ? 'bg-green-500' : isClaimed ? 'bg-blue-500' : 'bg-red-500'} `}></span>
                         <p className="font-bold text-white text-lg">
                             {isClaimed ? 'Claimed' : status.expired ? 'Expired (Ready)' : 'Active (Locked)'}
                         </p>
@@ -252,13 +289,13 @@ export default function Claim() {
                 </div>
                 <div className="bg-gray-900 p-4 rounded-lg">
                     <p className="text-gray-400 text-sm">Your Status</p>
-                    <p className={`font-bold text-lg ${isHeir ? 'text-green-400' : 'text-red-400'}`}>
+                    <p className={`font - bold text - lg ${isHeir ? 'text-green-400' : 'text-red-400'} `}>
                         {isHeir ? '✓ Beneficiary' : 'Not a Beneficiary'}
                     </p>
                 </div>
             </div>
 
-            {heirsData && (heirsData as any[]).length > 0 && (
+            {Array.isArray(heirsData) && heirsData.length > 0 && (
                 <div className="mb-6 bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                     <p className="text-gray-400 text-sm mb-2">Heirs</p>
                     {(heirsData as any[]).map((h: any, i: number) => (
@@ -272,35 +309,31 @@ export default function Claim() {
 
             {isClaimed ? (
                 <div className="bg-gray-900 p-6 rounded-lg border border-gray-700 text-center">
-                    <h3 className="text-xl font-bold mb-4 text-purple-400">✨ Final Message ✨</h3>
-                    {isMessageRevealed ? (
-                        <div className="p-4 bg-black/30 rounded border border-purple-500/30 font-serif italic text-lg text-gray-200">
-                            "{revealedMessage}"
-                        </div>
-                    ) : (
-                        <button
-                            onClick={handleReveal}
-                            disabled={isPending}
-                            className="bg-purple-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-purple-400 mb-4"
-                        >
-                            {txStatus || (isWritePending ? 'Revealing...' : 'Reveal Message')}
-                        </button>
-                    )}
+                    <h3 className="text-xl font-bold mb-4 text-green-400">Funds Unlocked</h3>
 
-                    {isHeir && pendingAmount && pendingAmount > 0n && (
-                        <div className="mt-4">
-                            <p className="text-gray-400 text-sm mb-2">Pending Withdrawal: {String(pendingAmount)} wei</p>
-                            <button
-                                onClick={handleWithdraw}
-                                disabled={isPending}
-                                className="bg-green-500 text-black font-bold py-2 px-6 rounded-lg hover:bg-green-400"
-                            >
-                                {txStatus || 'Withdraw Funds'}
-                            </button>
-                        </div>
-                    )}
+                    <div className="mb-6">
+                        {isHeir && pendingAmount && pendingAmount > 0n ? (
+                            <div>
+                                <p className="text-gray-300 mb-4">Your share is ready to withdraw.</p>
+                                <p className="text-gray-400 text-sm mb-2">Pending Withdrawal: {String(pendingAmount)} wei</p>
+                                <button
+                                    onClick={handleWithdraw}
+                                    disabled={isPending}
+                                    className="bg-green-500 text-black font-bold py-3 px-8 rounded-lg hover:bg-green-400 w-full md:w-auto animate-bounce"
+                                >
+                                    {txStatus || 'Withdraw Funds'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="p-3 bg-green-900/30 border border-green-500/30 rounded text-green-200">
+                                <p>✅ Funds have been withdrawn to your EVM wallet.</p>
+                            </div>
+                        )}
+                    </div>
 
-                    <p className="text-xs text-gray-500 mt-4">Funds have been distributed. Connect your Bitcoin wallet to withdraw.</p>
+                    <p className="text-xs text-gray-500 mt-4">
+                        {pendingAmount && pendingAmount > 0n ? 'Step 2 of 2: Withdraw Funds' : 'All steps completed'}
+                    </p>
                 </div>
             ) : canClaim ? (
                 <div className="text-center">
@@ -315,6 +348,7 @@ export default function Claim() {
                             {txStatus || (isWritePending ? 'Confirming...' : 'Claim Inheritance')}
                         </button>
                     </div>
+                    <p className="text-xs text-gray-500">Step 1 of 2: Claim Inheritance</p>
                 </div>
             ) : (
                 <div className="text-center p-6 bg-gray-900/50 rounded-lg">
@@ -339,3 +373,4 @@ export default function Claim() {
         </div>
     )
 }
+
