@@ -315,7 +315,7 @@ export default function Dashboard() {
             <div className="flex gap-4">
                 <button
                     onClick={handleCheckIn}
-                    disabled={!status.active || status.claimed || isExpiredLocal || isPending || isConfirming}
+                    disabled={!status.active || status.claimed || isPending || isConfirming}
                     className="flex-1 bg-ink text-paper font-semibold py-3 px-6 rounded-lg transition-colors hover:bg-ink/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {txStatus || (isWritePending ? 'Confirming...' : 'Check In')}

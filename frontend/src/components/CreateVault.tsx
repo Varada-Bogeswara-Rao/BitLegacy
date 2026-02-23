@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useConnect, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { useWallet } from '../context/WalletContext'
 import { addTxIntention, weiToSatoshis } from '@midl/executor'
 import { midlConfig, publicClient } from '../config'
-import { encodeFunctionData, parseEther } from 'viem'
+import { encodeFunctionData, formatEther, parseEther } from 'viem'
 import { executeMidlTransaction } from '../utils/midlTransaction'
 import TxLinks from './TxLinks'
 import BitcoinAutonomousWillArtifact from '../abis/BitcoinAutonomousWill.json'
@@ -16,7 +16,11 @@ type Heir = {
     percentage: string
 }
 
-export default function CreateVault() {
+type CreateVaultProps = {
+    onNavigate?: (view: 'landing' | 'create' | 'dashboard' | 'claim') => void
+}
+
+export default function CreateVault({ onNavigate }: CreateVaultProps) {
     const { isConnected: isWagmiConnected, address: wagmiAddress } = useAccount()
     const { connectors, connect: wagmiConnect } = useConnect()
     const { data: hash, writeContract, error: writeError, isPending: isWritePending } = useWriteContract()
@@ -39,8 +43,28 @@ export default function CreateVault() {
 
     const isConnected = isWagmiConnected || isXverseConnected
     const connectedAddress = connectedBtcAddress || wagmiAddress || ''
+    const ownerAddress = isXverseConnected ? (evmAddress || wagmiAddress) : (wagmiAddress || evmAddress)
+    const ownerArg = (ownerAddress || '0x0000000000000000000000000000000000000000') as `0x${string}`
+
+    const { data: statusData } = useReadContract({
+        address: CONTRACT_ADDRESS,
+        abi: ABI,
+        functionName: 'getStatus',
+        args: [ownerArg],
+        query: {
+            enabled: !!ownerAddress,
+        }
+    })
     const totalPercentage = heirs.reduce((sum, h) => sum + (parseInt(h.percentage) || 0), 0)
     const isValidTotal = totalPercentage === 100
+    const status = statusData as any
+    const rawBalance = status?.balance ?? status?.[4] ?? 0n
+    const balance = typeof rawBalance === 'bigint' ? rawBalance : BigInt(rawBalance ?? 0)
+    const hasEscrow = balance > 0n
+    const isClaimed = status?.claimed ?? status?.[3]
+    const isExpired = status?.expired ?? status?.[2]
+    const isActive = status?.active ?? status?.[1]
+    const statusLabel = isClaimed ? 'Claimed' : isExpired ? 'Expired' : isActive ? 'Active' : 'Inactive'
 
     const addHeir = () => setHeirs([...heirs, { btcAddress: '', percentage: '0' }])
     const removeHeir = (index: number) => setHeirs(heirs.filter((_, i) => i !== index))
@@ -53,6 +77,10 @@ export default function CreateVault() {
     const handleCreateViaXverse = async () => {
         if (!isValidTotal || !paymentAccount || !evmAddress) {
             setTxError('Missing EVM address. Reconnect Xverse and try again.')
+            return
+        }
+        if (hasEscrow) {
+            setTxError('A vault already exists for this owner. Check in, cancel, or let heirs claim before creating a new vault.')
             return
         }
         setTxStatus('Preparing transaction...')
@@ -112,6 +140,10 @@ export default function CreateVault() {
 
     const handleCreateViaWagmi = async () => {
         if (!isValidTotal) return
+        if (hasEscrow) {
+            setTxError('A vault already exists for this owner. Check in, cancel, or let heirs claim before creating a new vault.')
+            return
+        }
         setBtcTxId(null)
         setEvmTxHash(null)
         const formattedHeirs = heirs.map(h => ({
@@ -160,6 +192,46 @@ export default function CreateVault() {
                         ))}
                     </div>
                 </div>
+            </div>
+        )
+    }
+
+    if (hasEscrow) {
+        return (
+            <div className="bg-surface p-8 rounded-2xl shadow-soft border border-border">
+                <h2 className="text-3xl font-display mb-6">Vault Already Exists</h2>
+
+                <div className="mb-6 bg-paper p-3 rounded-lg border border-border">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted">Connected as</span>
+                    <p className="text-sm text-ink font-mono break-all">{connectedAddress}</p>
+                    {evmAddress && (
+                        <>
+                            <span className="text-xs uppercase tracking-[0.2em] text-muted mt-2 block">Vault Owner (EVM)</span>
+                            <p className="text-xs text-muted font-mono break-all">{evmAddress}</p>
+                        </>
+                    )}
+                </div>
+
+                <div className="bg-paper p-4 rounded-lg border border-border">
+                    <p className="text-muted text-sm">Vault Balance</p>
+                    <p className="text-2xl font-display">{formatEther(balance)} BTC</p>
+                    <p className="text-xs text-muted mt-2">Status: {statusLabel}</p>
+                </div>
+
+                <p className="text-muted text-sm mt-4">
+                    {isExpired
+                        ? 'This vault is expired. Check in first, then cancel to create a new vault.'
+                        : 'Cancel the existing vault to create a new one, or let heirs claim if you want to execute inheritance.'}
+                </p>
+
+                {onNavigate && (
+                    <button
+                        onClick={() => onNavigate('dashboard')}
+                        className="mt-6 border border-ink/20 text-ink font-semibold py-2 px-6 rounded-lg hover:bg-ink/5 transition-colors"
+                    >
+                        Go to Dashboard
+                    </button>
+                )}
             </div>
         )
     }
@@ -258,8 +330,8 @@ export default function CreateVault() {
 
                     <button
                         onClick={handleCreate}
-                        disabled={!isValidTotal || isPending || !isConnected}
-                        className={`w-full py-3 rounded-lg font-semibold text-base tracking-wide transition-colors ${!isValidTotal || isPending
+                        disabled={!isValidTotal || isPending || !isConnected || hasEscrow}
+                        className={`w-full py-3 rounded-lg font-semibold text-base tracking-wide transition-colors ${!isValidTotal || isPending || hasEscrow
                             ? 'bg-border text-muted cursor-not-allowed'
                             : 'bg-ink text-paper hover:bg-ink/90'
                             }`}

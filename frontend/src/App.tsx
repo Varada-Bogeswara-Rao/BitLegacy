@@ -167,7 +167,7 @@ function App() {
                 </div>
               )}
 
-              {view === 'create' && <CreateVault />}
+              {view === 'create' && <CreateVault onNavigate={setView} />}
               {view === 'dashboard' && <Dashboard />}
               {view === 'claim' && <Claim />}
             </main>
