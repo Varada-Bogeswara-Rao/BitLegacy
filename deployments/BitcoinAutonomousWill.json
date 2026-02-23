@@ -1,7 +1,7 @@
 {
-  "address": "0x36c93A7a67A19611C494C8E816A30D5776eE2c48",
-  "txId": "0x5940d3b8b78e003f516bf37580f5445f13fb2678b38d8d26376b563e6767a89d",
-  "btcTxId": "f5884d6e0ee861b2ce1a8a6df1ac3f5afda53040eadf4b7a94fa11a7c6429f60",
+  "address": "0x629B5f6dFbF4eE50a6B2BC50040dCB5e42e5ed83",
+  "txId": "0xb89b45aa6194327e4d88e98ce122c10251f2b4ba30fce2c886db52699c8849d5",
+  "btcTxId": "5e07741e16b84850b14b2a016ad48ef41b2fb0a5caa50efa2b8173767c000fb0",
   "abi": [
     {
       "inputs": [],
@@ -21,11 +21,6 @@
     {
       "inputs": [],
       "name": "LifetimeExceeded",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "MessageAlreadyRevealed",
       "type": "error"
     },
     {
@@ -113,44 +108,6 @@
         }
       ],
       "name": "InheritanceScheduled",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "hash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "MessageCommitted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes",
-          "name": "message",
-          "type": "bytes"
-        }
-      ],
-      "name": "MessageRevealed",
       "type": "event"
     },
     {
@@ -374,11 +331,6 @@
           "internalType": "uint256",
           "name": "intervalMinutes",
           "type": "uint256"
-        },
-        {
-          "internalType": "bytes",
-          "name": "encryptedMessage_",
-          "type": "bytes"
         }
       ],
       "name": "createVault",
@@ -431,25 +383,6 @@
           "internalType": "struct BitcoinAutonomousWill.Heir[]",
           "name": "",
           "type": "tuple[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        }
-      ],
-      "name": "getMessageHash",
-      "outputs": [
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
         }
       ],
       "stateMutability": "view",
@@ -550,24 +483,6 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        },
-        {
-          "internalType": "string",
-          "name": "btcAddress",
-          "type": "string"
-        }
-      ],
-      "name": "revealMessage",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [],
       "name": "revive",
       "outputs": [],
@@ -600,16 +515,6 @@
           "type": "uint256"
         },
         {
-          "internalType": "bytes32",
-          "name": "messageHash",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes",
-          "name": "encryptedMessage",
-          "type": "bytes"
-        },
-        {
           "internalType": "bool",
           "name": "isActive",
           "type": "bool"
@@ -622,11 +527,6 @@
         {
           "internalType": "bool",
           "name": "claimInitiated",
-          "type": "bool"
-        },
-        {
-          "internalType": "bool",
-          "name": "messageRevealed",
           "type": "bool"
         }
       ],

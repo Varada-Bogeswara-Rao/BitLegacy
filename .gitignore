@@ -13,6 +13,7 @@ dist
 
 # Misc
 .DS_Store
+*.log
 .env
 .env.local
 .env.development.local
@@ -26,3 +27,6 @@ artifacts
 # Midl
 .midl
 midl-chain
+
+# Gemini
+.gemini/

@@ -38,7 +38,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             30,
-            ethers.encodeBytes32String("secret"),
             { value: ethers.parseEther("1") }
         );
 
@@ -49,7 +48,7 @@ describe("BitcoinAutonomousWill", function () {
 
     it("rejects zero deposit", async () => {
         await expect(
-            will.connect(owner).createVault(heirs(BTC_ADDR_1, BTC_ADDR_2), 30, "0x")
+            will.connect(owner).createVault(heirs(BTC_ADDR_1, BTC_ADDR_2), 30)
         ).to.be.reverted;
     });
 
@@ -58,7 +57,6 @@ describe("BitcoinAutonomousWill", function () {
             will.connect(owner).createVault(
                 [{ btcAddress: "", percentage: 100 }],
                 30,
-                "0x11",
                 { value: ethers.parseEther("1") }
             )
         ).to.be.reverted;
@@ -72,7 +70,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             30,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -84,7 +81,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             30,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -99,7 +95,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             30,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -117,7 +112,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             1,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -137,7 +131,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             1,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -157,7 +150,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             1,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -180,7 +172,6 @@ describe("BitcoinAutonomousWill", function () {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             1,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 
@@ -192,52 +183,10 @@ describe("BitcoinAutonomousWill", function () {
         expect(status.balance).to.equal(ethers.parseEther("1.5"));
     });
 
-    /* ------------------------------------------------------------ */
-    /*                        MESSAGE REVEAL                        */
-    /* ------------------------------------------------------------ */
-
-    it("heirs can reveal message after claim", async () => {
-        const msg = ethers.toUtf8Bytes("hello heirs");
-
-        await will.connect(owner).createVault(
-            heirs(BTC_ADDR_1, BTC_ADDR_2),
-            1,
-            msg,
-            { value: ethers.parseEther("1") }
-        );
-
-        await increaseTime(DAY + 360);
-        await will.connect(heir1).claimInheritance(owner.address, BTC_ADDR_1);
-
-        // Reveal using BTC address
-        await will.connect(heir1).revealMessage(owner.address, BTC_ADDR_1);
-    });
-
-    it("non-heir cannot reveal message", async () => {
-        await will.connect(owner).createVault(
-            heirs(BTC_ADDR_1, BTC_ADDR_2),
-            1,
-            "0x11",
-            { value: ethers.parseEther("1") }
-        );
-
-        await increaseTime(DAY + 360);
-        await will.connect(heir1).claimInheritance(owner.address, BTC_ADDR_1);
-
-        await expect(
-            will.connect(stranger).revealMessage(owner.address, BTC_ADDR_3)
-        ).to.be.reverted;
-    });
-
-    /* ------------------------------------------------------------ */
-    /*                       VIEW FUNCTIONS                         */
-    /* ------------------------------------------------------------ */
-
     it("getHeirs returns BTC addresses", async () => {
         await will.connect(owner).createVault(
             heirs(BTC_ADDR_1, BTC_ADDR_2),
             30,
-            "0x11",
             { value: ethers.parseEther("1") }
         );
 

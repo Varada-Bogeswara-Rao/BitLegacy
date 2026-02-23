@@ -12,14 +12,13 @@ async function main() {
     // 1. Create Vault
     console.log("Creating vault...");
     const heirs = [
-        { wallet: "0x1111111111111111111111111111111111111111", percentage: 60 },
-        { wallet: "0x2222222222222222222222222222222222222222", percentage: 40 }
+        { btcAddress: "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", percentage: 60 },
+        { btcAddress: "tb1qrp33g0q5b5698ahp5jnf0y5pnhyw7sl0e5n5z8", percentage: 40 }
     ];
 
     const tx = await contract.createVault(
         heirs,
-        1, // 1 day interval
-        ethers.toUtf8Bytes("Smoke Test Message"),
+        1, // 1 minute interval
         { value: ethers.parseEther("0.001") }
     );
 

@@ -12,7 +12,6 @@ Design principles:
 - Pull-payment pattern — heirs withdraw individually
 - Claim race impossible
 - Revival allowed but bounded
-- Message integrity commit-reveal (NOT private storage)
 */
 
 contract BitcoinAutonomousWill is ReentrancyGuard {
@@ -42,13 +41,9 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
         uint256 lastCheckIn;
         uint256 checkInInterval;
 
-        bytes32 messageHash;
-        bytes encryptedMessage; // integrity reveal only
-
         bool isActive;
         bool isClaimed;
         bool claimInitiated;
-        bool messageRevealed;
     }
 
     struct VaultStatus {
@@ -82,8 +77,6 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
     event ClaimStarted(address indexed owner, address indexed executor);
     event InheritanceScheduled(address indexed owner, uint256 totalAmount);
     event WithdrawalClaimed(string btcAddress, address indexed recipient, uint256 amount);
-    event MessageCommitted(address indexed owner, bytes32 hash);
-    event MessageRevealed(address indexed owner, bytes message);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -98,7 +91,6 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
     error Unauthorized();
     error NothingToWithdraw();
     error LifetimeExceeded();
-    error MessageAlreadyRevealed();
 
     /*//////////////////////////////////////////////////////////////
                               CORE LOGIC
@@ -106,8 +98,7 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
 
     function createVault(
         Heir[] calldata heirs_,
-        uint256 intervalMinutes,
-        bytes calldata encryptedMessage_
+        uint256 intervalMinutes
     ) external payable {
 
         if (escrowed[msg.sender] != 0) revert NotActive();
@@ -122,17 +113,13 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
         v.createdAt = block.timestamp;
         v.lastCheckIn = block.timestamp;
         v.checkInInterval = intervalMinutes * 1 minutes;
-        v.messageHash = keccak256(encryptedMessage_);
-        v.encryptedMessage = encryptedMessage_;
         v.isActive = true;
         v.isClaimed = false;
         v.claimInitiated = false;
-        v.messageRevealed = false;
 
         escrowed[msg.sender] = msg.value;
 
         emit VaultCreated(msg.sender, msg.value, v.checkInInterval);
-        emit MessageCommitted(msg.sender, v.messageHash);
     }
 
     function checkIn() external {
@@ -144,8 +131,11 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
         if (block.timestamp > v.createdAt + MAX_TOTAL_LIFETIME)
             revert LifetimeExceeded();
 
-        if (!_expired(v) && block.timestamp < v.lastCheckIn + MIN_CHECKIN_COOLDOWN)
-            revert Cooldown();
+        if (!_expired(v)) {
+            uint256 cooldown = MIN_CHECKIN_COOLDOWN;
+            if (v.checkInInterval < cooldown) cooldown = v.checkInInterval;
+            if (block.timestamp < v.lastCheckIn + cooldown) revert Cooldown();
+        }
 
         v.lastCheckIn = block.timestamp;
         emit CheckIn(msg.sender, block.timestamp);
@@ -236,18 +226,6 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
         emit WithdrawalClaimed(btcAddress, msg.sender, amount);
     }
 
-    function revealMessage(address owner, string calldata btcAddress) external {
-
-        Vault storage v = vaults[owner];
-
-        if (!v.isClaimed) revert NotActive();
-        if (!_isHeir(owner, btcAddress)) revert Unauthorized();
-        if (v.messageRevealed) revert MessageAlreadyRevealed();
-
-        v.messageRevealed = true;
-        emit MessageRevealed(owner, v.encryptedMessage);
-    }
-
     /*//////////////////////////////////////////////////////////////
                                VIEW
     //////////////////////////////////////////////////////////////*/
@@ -261,8 +239,8 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
 
         bool exp = _expired(v);
 
-        uint256 remaining = exp ? 0 :
-            (v.lastCheckIn + v.checkInInterval) - block.timestamp;
+        uint256 end = v.lastCheckIn + v.checkInInterval;
+        uint256 remaining = block.timestamp >= end ? 0 : end - block.timestamp;
 
         return VaultStatus(
             true,
@@ -273,10 +251,6 @@ contract BitcoinAutonomousWill is ReentrancyGuard {
             remaining,
             v.checkInInterval
         );
-    }
-
-    function getMessageHash(address owner) external view returns(bytes32) {
-        return vaults[owner].messageHash;
     }
 
     function getHeirs(address owner) external view returns (Heir[] memory) {
