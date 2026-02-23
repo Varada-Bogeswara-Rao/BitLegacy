@@ -1,18 +1,21 @@
-import { SignMessageProtocol, getDefaultAccount, waitForTransaction } from '@midl/core'
-import { finalizeBTCTransaction, signIntention, getEVMAddress } from '@midl/executor'
+import { SignMessageProtocol, waitForTransaction } from '@midl/core'
+import { finalizeBTCTransaction, signIntention } from '@midl/executor'
 import { keccak256 } from 'viem'
 import { midlConfig, publicClient } from '../config'
-import { regtest as midlRegtest } from '@midl/core'
-import type { Account } from '@midl/core'
 
 type TxIntention = {
-    deposit?: { satoshis: number }
+    deposit?: { satoshis?: number }
     evmTransaction?: {
         to: string
         data: string
         from: string | null
         value?: bigint
     }
+}
+
+export type MidlTxResult = {
+    evmTxHashes: string[]
+    btcTxId: string | null
 }
 
 /**
@@ -26,9 +29,8 @@ type TxIntention = {
  */
 export async function executeMidlTransaction(
     intentions: TxIntention[],
-    paymentAccount: Account,
     onStatus: (status: string) => void,
-): Promise<string[]> {
+): Promise<MidlTxResult> {
     // Step 1: Finalize BTC transaction (prompts wallet)
     onStatus('Sign the transaction in your wallet...')
     const btcTx = await finalizeBTCTransaction(
@@ -80,5 +82,8 @@ export async function executeMidlTransaction(
         console.log('[Midl] Transaction fully confirmed:', btcTx.tx.id)
     })
 
-    return evmTransactionsHashes
+    return {
+        evmTxHashes: evmTransactionsHashes,
+        btcTxId: btcTx?.tx?.id ?? null,
+    }
 }

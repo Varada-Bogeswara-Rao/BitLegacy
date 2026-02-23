@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { useWallet } from '../context/WalletContext'
 import { addTxIntention, weiToSatoshis } from '@midl/executor'
-import { midlConfig } from '../config'
-import { encodeFunctionData, parseEther, stringToHex } from 'viem'
+import { midlConfig, publicClient } from '../config'
+import { encodeFunctionData, parseEther } from 'viem'
 import { executeMidlTransaction } from '../utils/midlTransaction'
+import TxLinks from './TxLinks'
 import BitcoinAutonomousWillArtifact from '../abis/BitcoinAutonomousWill.json'
 
 const CONTRACT_ADDRESS = BitcoinAutonomousWillArtifact.address as `0x${string}`
@@ -29,11 +30,12 @@ export default function CreateVault() {
 
     const [heirs, setHeirs] = useState<Heir[]>([{ btcAddress: '', percentage: '100' }])
     const [interval, setInterval] = useState('1')
-    const [message, setMessage] = useState('')
     const [fundingAmount, setFundingAmount] = useState('0.0001')
     const [txStatus, setTxStatus] = useState<string | null>(null)
     const [txError, setTxError] = useState<string | null>(null)
     const [txSuccess, setTxSuccess] = useState(false)
+    const [evmTxHash, setEvmTxHash] = useState<string | null>(null)
+    const [btcTxId, setBtcTxId] = useState<string | null>(null)
 
     const isConnected = isWagmiConnected || isXverseConnected
     const connectedAddress = connectedBtcAddress || wagmiAddress || ''
@@ -49,9 +51,14 @@ export default function CreateVault() {
     }
 
     const handleCreateViaXverse = async () => {
-        if (!isValidTotal || !paymentAccount) return
+        if (!isValidTotal || !paymentAccount || !evmAddress) {
+            setTxError('Missing EVM address. Reconnect Xverse and try again.')
+            return
+        }
         setTxStatus('Preparing transaction...')
         setTxError(null)
+        setEvmTxHash(null)
+        setBtcTxId(null)
 
         try {
             const formattedHeirs = heirs.map(h => ({
@@ -59,13 +66,12 @@ export default function CreateVault() {
                 percentage: BigInt(h.percentage),
             }))
             const intervalMinutes = BigInt(interval)
-            const encryptedMessage = stringToHex(message)
             const value = parseEther(fundingAmount)
 
             const data = encodeFunctionData({
                 abi: ABI,
                 functionName: 'createVault',
-                args: [formattedHeirs, intervalMinutes, encryptedMessage],
+                args: [formattedHeirs, intervalMinutes],
             })
 
             // Create the intention
@@ -79,8 +85,21 @@ export default function CreateVault() {
                 },
             }, paymentAccount.address)
 
-            // Full Midl flow: sign → broadcast → wait for BTC + EVM confirmation
-            await executeMidlTransaction([intention], paymentAccount, setTxStatus)
+            // Full Midl flow: sign → broadcast
+            const result = await executeMidlTransaction([intention], setTxStatus)
+            const [firstHash] = result.evmTxHashes
+            setBtcTxId(result.btcTxId)
+            if (firstHash) {
+                setEvmTxHash(firstHash)
+                setTxStatus('Waiting for EVM confirmation...')
+                const receipt = await publicClient.waitForTransactionReceipt({
+                    hash: firstHash as `0x${string}`,
+                    confirmations: 1,
+                })
+                if (receipt.status === 'reverted') {
+                    throw new Error('EVM transaction reverted. Please check inputs and try again.')
+                }
+            }
 
             setTxStatus(null)
             setTxSuccess(true)
@@ -93,6 +112,8 @@ export default function CreateVault() {
 
     const handleCreateViaWagmi = async () => {
         if (!isValidTotal) return
+        setBtcTxId(null)
+        setEvmTxHash(null)
         const formattedHeirs = heirs.map(h => ({
             btcAddress: h.btcAddress,
             percentage: BigInt(h.percentage),
@@ -101,37 +122,38 @@ export default function CreateVault() {
             address: CONTRACT_ADDRESS,
             abi: ABI,
             functionName: 'createVault',
-            args: [formattedHeirs, BigInt(interval), stringToHex(message)],
+            args: [formattedHeirs, BigInt(interval)],
             value: parseEther(fundingAmount),
         })
     }
 
     const handleCreate = isXverseConnected ? handleCreateViaXverse : handleCreateViaWagmi
     const isPending = isWritePending || txStatus !== null
+    const evmTxLinkHash = evmTxHash ?? (hash ? String(hash) : null)
 
     if (!isConnected) {
         return (
-            <div className="flex flex-col items-center justify-center space-y-6 p-10 bg-gray-800 rounded-xl">
-                <h2 className="text-2xl font-bold">Connect Wallet to Create Vault</h2>
+            <div className="flex flex-col items-center justify-center space-y-6 p-10 bg-surface rounded-2xl border border-border shadow-soft">
+                <h2 className="text-2xl font-display">Connect Wallet to Create Vault</h2>
                 <div className="w-full max-w-sm">
-                    <p className="text-sm text-gray-400 mb-2 text-center">Bitcoin Wallet</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted mb-2 text-center">Bitcoin Wallet</p>
                     <button
                         onClick={connectXverse}
                         disabled={xverseConnecting}
-                        className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-black font-bold py-3 px-6 rounded-lg hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-all"
+                        className="w-full border border-ink/20 text-ink font-semibold py-3 px-6 rounded-lg hover:bg-ink/5 disabled:opacity-50 transition-colors"
                     >
-                        {xverseConnecting ? 'Connecting...' : '🟠 Connect Xverse'}
+                        {xverseConnecting ? 'Connecting...' : 'Connect Xverse'}
                     </button>
-                    {xverseError && <p className="text-red-400 text-xs mt-1 text-center">{xverseError}</p>}
+                    {xverseError && <p className="text-brick text-xs mt-2 text-center">{xverseError}</p>}
                 </div>
                 <div className="w-full max-w-sm">
-                    <p className="text-sm text-gray-400 mb-2 text-center">EVM Wallets</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted mb-2 text-center">EVM Wallets</p>
                     <div className="flex flex-col gap-2">
                         {connectors.map((connector) => (
                             <button
                                 key={connector.uid}
                                 onClick={() => wagmiConnect({ connector })}
-                                className="w-full bg-gray-700 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-600 transition-colors"
+                                className="w-full border border-ink/20 text-ink font-semibold py-2 px-6 rounded-lg hover:bg-ink/5 transition-colors"
                             >
                                 {connector.name}
                             </button>
@@ -145,54 +167,60 @@ export default function CreateVault() {
     const showSuccess = isConfirmed || txSuccess
 
     return (
-        <div className="bg-gray-800 p-8 rounded-xl shadow-xl border border-gray-700">
-            <h2 className="text-3xl font-bold mb-6 text-amber-500">Create Your Will</h2>
+        <div className="bg-surface p-8 rounded-2xl shadow-soft border border-border">
+            <h2 className="text-3xl font-display mb-6">Create Your Will</h2>
 
-            <div className="mb-6 bg-gray-900/60 p-3 rounded-lg border border-gray-700 flex items-center justify-between">
+            <div className="mb-6 bg-paper p-3 rounded-lg border border-border flex items-center justify-between gap-6">
                 <div>
-                    <span className="text-xs text-gray-500">Connected as</span>
-                    <p className="text-sm text-amber-400 font-mono break-all">{connectedAddress}</p>
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted">Connected as</span>
+                    <p className="text-sm text-ink font-mono break-all">{connectedAddress}</p>
+                    {isXverseConnected && evmAddress && (
+                        <>
+                            <span className="text-xs uppercase tracking-[0.2em] text-muted mt-2 block">Vault Owner (EVM)</span>
+                            <p className="text-xs text-muted font-mono break-all">{evmAddress}</p>
+                        </>
+                    )}
                 </div>
-                <span className="text-green-400 text-xs font-bold px-2 py-1 bg-green-900/40 rounded">
-                    {isXverseConnected ? '🟠 Xverse' : '🔵 EVM'}
+                <span className="text-xs font-semibold px-2 py-1 rounded border border-slate/30 text-slate bg-slate/10">
+                    {isXverseConnected ? 'Xverse' : 'EVM'}
                 </span>
             </div>
 
             {showSuccess ? (
-                <div className="bg-green-900/50 p-6 rounded-lg border border-green-500 text-center">
-                    <h3 className="text-2xl font-bold text-green-400 mb-2">Vault Created Successfully!</h3>
-                    <p className="text-gray-300">Your legacy is secured on Bitcoin.</p>
-                    {hash && <div className="mt-4 text-sm text-gray-400 break-all">Tx: {hash}</div>}
+                <div className="bg-sage/10 p-6 rounded-lg border border-sage/30 text-center">
+                    <h3 className="text-2xl font-display text-sage mb-2">Vault Created Successfully!</h3>
+                    <p className="text-muted">Your legacy is secured on Bitcoin.</p>
+                    <TxLinks className="mt-4 justify-center" evmTxHash={evmTxLinkHash} btcTxId={btcTxId} />
                 </div>
             ) : (
                 <div className="space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Funding Amount (BTC)</label>
+                        <label className="block text-xs uppercase tracking-[0.2em] text-muted mb-2">Funding Amount (BTC)</label>
                         <input
                             type="number"
                             value={fundingAmount}
                             onChange={(e) => setFundingAmount(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white focus:border-amber-500 outline-none"
+                            className="w-full bg-paper border border-border rounded p-2 text-ink placeholder:text-muted focus:border-ink/30 outline-none"
                             step="0.0001"
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Check-in Interval (Minutes)</label>
+                        <label className="block text-xs uppercase tracking-[0.2em] text-muted mb-2">Check-in Interval (Minutes)</label>
                         <input
                             type="number"
                             value={interval}
                             onChange={(e) => setInterval(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white focus:border-amber-500 outline-none"
+                            className="w-full bg-paper border border-border rounded p-2 text-ink placeholder:text-muted focus:border-ink/30 outline-none"
                             min="1"
                         />
-                        <p className="text-xs text-gray-500 mt-1">If you don't check in within this time, heirs can claim. Use 1 for quick testing.</p>
+                        <p className="text-xs text-muted mt-2">If you don't check in within this time, heirs can claim. Use 1 for quick testing.</p>
                     </div>
 
                     <div>
                         <div className="flex justify-between items-center mb-2">
-                            <label className="block text-sm font-medium text-gray-400">Heirs</label>
-                            <span className={`text-sm font-bold ${isValidTotal ? 'text-green-400' : 'text-red-400'}`}>
+                            <label className="block text-xs uppercase tracking-[0.2em] text-muted">Heirs</label>
+                            <span className={`text-sm font-semibold ${isValidTotal ? 'text-sage' : 'text-brick'}`}>
                                 Total: {totalPercentage}%
                             </span>
                         </div>
@@ -204,54 +232,45 @@ export default function CreateVault() {
                                         placeholder="Bitcoin Address (tb1q..., bc1q...)"
                                         value={heir.btcAddress}
                                         onChange={(e) => updateHeir(index, 'btcAddress', e.target.value)}
-                                        className="flex-grow bg-gray-900 border border-gray-600 rounded p-2 text-white text-sm focus:border-amber-500 outline-none"
+                                        className="flex-grow bg-paper border border-border rounded p-2 text-ink text-sm placeholder:text-muted focus:border-ink/30 outline-none"
                                     />
                                     <div className="relative w-24">
                                         <input
                                             type="number"
                                             value={heir.percentage}
                                             onChange={(e) => updateHeir(index, 'percentage', e.target.value)}
-                                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white text-sm focus:border-amber-500 outline-none pr-6"
+                                            className="w-full bg-paper border border-border rounded p-2 text-ink text-sm placeholder:text-muted focus:border-ink/30 outline-none pr-6"
                                         />
-                                        <span className="absolute right-2 top-2 text-gray-500">%</span>
+                                        <span className="absolute right-2 top-2 text-muted">%</span>
                                     </div>
                                     {heirs.length > 1 && (
-                                        <button onClick={() => removeHeir(index)} className="text-red-400 hover:text-red-300 p-2">✕</button>
+                                        <button onClick={() => removeHeir(index)} className="text-brick hover:text-brick/80 p-2">✕</button>
                                     )}
                                 </div>
                             ))}
-                            <button onClick={addHeir} disabled={heirs.length >= 10} className="text-sm text-amber-500 hover:text-amber-400 font-medium">
+                            <button onClick={addHeir} disabled={heirs.length >= 10} className="text-sm text-accent hover:text-accent/80 font-medium">
                                 + Add Heir
                             </button>
                         </div>
-                        {!isValidTotal && <p className="text-red-400 text-xs mt-1">Total percentage must equal 100%.</p>}
-                        <p className="text-gray-500 text-xs mt-2">💡 Heirs connect their Bitcoin wallet to claim. Enter their Bitcoin address here.</p>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Final Message</label>
-                        <textarea
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            placeholder="A secret message to be revealed..."
-                            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white h-24 focus:border-amber-500 outline-none resize-none"
-                            maxLength={500}
-                        />
+                        {!isValidTotal && <p className="text-brick text-xs mt-2">Total percentage must equal 100%.</p>}
+                        <p className="text-muted text-xs mt-2">Heirs connect their Bitcoin wallet to claim. Enter their Bitcoin address here.</p>
                     </div>
 
                     <button
                         onClick={handleCreate}
                         disabled={!isValidTotal || isPending || !isConnected}
-                        className={`w-full py-3 rounded-lg font-bold text-lg transition-colors ${!isValidTotal || isPending
-                            ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                            : 'bg-amber-500 text-black hover:bg-amber-400'
+                        className={`w-full py-3 rounded-lg font-semibold text-base tracking-wide transition-colors ${!isValidTotal || isPending
+                            ? 'bg-border text-muted cursor-not-allowed'
+                            : 'bg-ink text-paper hover:bg-ink/90'
                             }`}
                     >
                         {txStatus || (isWritePending ? 'Confirm in Wallet...' : isConfirming ? 'Creating Vault...' : 'Create Vault')}
                     </button>
 
+                    <TxLinks evmTxHash={evmTxLinkHash} btcTxId={btcTxId} />
+
                     {(writeError || txError) && (
-                        <div className="bg-red-900/50 p-4 rounded text-red-200 text-sm break-words">
+                        <div className="bg-brick/10 p-4 rounded text-brick text-sm break-words border border-brick/30">
                             {writeError?.message || txError}
                         </div>
                     )}
